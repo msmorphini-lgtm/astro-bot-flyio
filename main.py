@@ -269,6 +269,29 @@ def get_secondary_category(counts, dominant_category):
     return sorted([name for name, count in secondary.items() if count == max_count])[0]
 
 
+def should_show_secondary_category(counts, dominant_category, secondary_category, personal_signs, category_map):
+    if not secondary_category:
+        return False
+
+    dominant_count = counts.get(dominant_category, 0)
+    secondary_count = counts.get(secondary_category, 0)
+
+    if secondary_count == dominant_count:
+        return True
+    if dominant_count - secondary_count == 1:
+        return True
+
+    personal_counts = {name: 0 for name in counts}
+    for sign in personal_signs:
+        category = category_map.get(sign)
+        if category:
+            personal_counts[category] += 1
+
+    dominant_personal = personal_counts.get(dominant_category, 0)
+    secondary_personal = personal_counts.get(secondary_category, 0)
+    return secondary_personal > dominant_personal
+
+
 def analyze_archetype(all_signs, personal_signs, priority_signs):
     modality_counts, element_counts = build_category_counts(all_signs)
     dominant_modality, modality_leaders, modality_source = resolve_dominant_category(
@@ -279,6 +302,12 @@ def analyze_archetype(all_signs, personal_signs, priority_signs):
     )
     secondary_modality = get_secondary_category(modality_counts, dominant_modality)
     secondary_element = get_secondary_category(element_counts, dominant_element)
+    show_secondary_modality = should_show_secondary_category(
+        modality_counts, dominant_modality, secondary_modality, personal_signs, SIGN_MODALITIES
+    )
+    show_secondary_element = should_show_secondary_category(
+        element_counts, dominant_element, secondary_element, personal_signs, SIGN_ELEMENTS
+    )
 
     archetype_name = f"{dominant_modality} {dominant_element}"
 
@@ -289,6 +318,8 @@ def analyze_archetype(all_signs, personal_signs, priority_signs):
         "dominant_element": dominant_element,
         "secondary_modality": secondary_modality,
         "secondary_element": secondary_element,
+        "show_secondary_modality": show_secondary_modality,
+        "show_secondary_element": show_secondary_element,
         "modality_leaders": modality_leaders,
         "element_leaders": element_leaders,
         "modality_source": modality_source,
@@ -304,6 +335,8 @@ def build_archetype_report(all_signs, personal_signs, priority_signs):
     dominant_element = archetype_data["dominant_element"]
     secondary_modality = archetype_data["secondary_modality"]
     secondary_element = archetype_data["secondary_element"]
+    show_secondary_modality = archetype_data["show_secondary_modality"]
+    show_secondary_element = archetype_data["show_secondary_element"]
     archetype_name = archetype_data["archetype_name"]
     archetype_entry = ARCHETYPE_DATABASE.get((dominant_modality, dominant_element))
 
@@ -319,7 +352,7 @@ def build_archetype_report(all_signs, personal_signs, priority_signs):
         description,
     ]
 
-    if secondary_element:
+    if secondary_element and show_secondary_element:
         extra_element_text = None
         if archetype_entry:
             extra_element_text = archetype_entry["extra_elements"].get(secondary_element)
@@ -329,7 +362,7 @@ def build_archetype_report(all_signs, personal_signs, priority_signs):
             f"Ваша уникальность в том, что к {dominant_element.lower()} добавляется {secondary_element.lower()}. {extra_element_text}"
         )
 
-    if secondary_modality:
+    if secondary_modality and show_secondary_modality:
         extra_modality_text = None
         if archetype_entry:
             extra_modality_text = archetype_entry["extra_modalities"].get(secondary_modality)
@@ -374,6 +407,7 @@ def get_google_worksheet():
                 "dominant_modalities",
                 "dominant_elements",
                 "archetype_name",
+                "planet_summary",
                 "planet_signs_json",
                 "planet_houses_json",
             ]])
@@ -406,6 +440,7 @@ def save_profile_to_google_sheets(message, profile_data):
             ", ".join(profile_data["dominant_modalities"]),
             ", ".join(profile_data["dominant_elements"]),
             profile_data["archetype_name"],
+            profile_data["planet_summary"],
             json.dumps(profile_data["planet_signs"], ensure_ascii=False),
             json.dumps(profile_data["planet_houses"], ensure_ascii=False),
         ])
@@ -578,6 +613,7 @@ async def process_place(message: types.Message, state: FSMContext):
         personal_signs = []
         priority_signs = {}
         planet_houses = {}
+        planet_summary_rows = []
         sun_sign_ru = ""
         moon_sign_ru = ""
         for planet_id in PLANET_NAMES:
@@ -595,6 +631,11 @@ async def process_place(message: types.Message, state: FSMContext):
                 if point_name in PERSONAL_PLANETS:
                     personal_signs.append(sign_ru)
 
+                if house:
+                    planet_summary_rows.append(f"{point_name} — {sign_ru} в доме {house}")
+                else:
+                    planet_summary_rows.append(f"{point_name} — {sign_ru} (дом не найден)")
+
                 if planet_id == swe.SUN:
                     sun_sign_ru = sign_ru
                 if planet_id == swe.MOON:
@@ -606,6 +647,7 @@ async def process_place(message: types.Message, state: FSMContext):
         asc = ascmc[0]
         asc_sign_ru = SIGNS[int(asc // 30)]
         priority_signs["Ascendant"] = asc_sign_ru
+        planet_summary_rows.append(f"Ascendant (ASC) — {asc_sign_ru}")
 
         archetype_report, archetype_data = build_archetype_report(planet_signs, personal_signs, priority_signs)
         save_profile_to_google_sheets(message, {
@@ -621,6 +663,7 @@ async def process_place(message: types.Message, state: FSMContext):
             "dominant_modalities": [archetype_data["dominant_modality"]],
             "dominant_elements": [archetype_data["dominant_element"]],
             "archetype_name": archetype_data["archetype_name"],
+            "planet_summary": " | ".join(planet_summary_rows),
             "planet_signs": planet_signs,
             "planet_houses": planet_houses,
         })
