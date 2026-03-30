@@ -5,6 +5,7 @@ import random
 import logging
 import datetime
 import re
+import json
 import swisseph as swe
 
 from aiogram import Bot, Dispatcher, types
@@ -15,6 +16,8 @@ from aiogram.dispatcher.filters.state import State, StatesGroup
 from geopy.geocoders import Nominatim
 from timezonefinder import TimezoneFinder
 import pytz
+import gspread
+from google.oauth2.service_account import Credentials
 
 logging.basicConfig(level=logging.INFO)
 
@@ -27,6 +30,9 @@ WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", f"/webhook/{BOT_TOKEN}")
 WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}" if WEBHOOK_HOST else None
 WEBAPP_HOST = os.getenv("WEBAPP_HOST", "0.0.0.0")
 WEBAPP_PORT = int(os.getenv("PORT", os.getenv("WEBAPP_PORT", "8080")))
+GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID")
+GOOGLE_WORKSHEET_NAME = os.getenv("GOOGLE_WORKSHEET_NAME", "profiles")
+GOOGLE_SERVICE_ACCOUNT_JSON = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
 
 bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
@@ -55,6 +61,209 @@ PLANET_NAMES = {
     swe.NEPTUNE: "Neptune",
     swe.PLUTO: "Pluto"
 }
+
+SIGN_MODALITIES = {
+    "Овен": "Кардинальный",
+    "Рак": "Кардинальный",
+    "Весы": "Кардинальный",
+    "Козерог": "Кардинальный",
+    "Телец": "Фиксированный",
+    "Лев": "Фиксированный",
+    "Скорпион": "Фиксированный",
+    "Водолей": "Фиксированный",
+    "Близнецы": "Мутабельный",
+    "Дева": "Мутабельный",
+    "Стрелец": "Мутабельный",
+    "Рыбы": "Мутабельный",
+}
+
+SIGN_ELEMENTS = {
+    "Овен": "Огонь",
+    "Лев": "Огонь",
+    "Стрелец": "Огонь",
+    "Телец": "Земля",
+    "Дева": "Земля",
+    "Козерог": "Земля",
+    "Близнецы": "Воздух",
+    "Весы": "Воздух",
+    "Водолей": "Воздух",
+    "Рак": "Вода",
+    "Скорпион": "Вода",
+    "Рыбы": "Вода",
+}
+
+MODALITY_TRAITS = {
+    "Кардинальный": "вы запускаете процессы, любите движение и чувствуете себя увереннее, когда можете влиять на ход событий.",
+    "Фиксированный": "в вас много устойчивости, верности своим решениям и умения удерживать курс даже тогда, когда вокруг всё меняется.",
+    "Мутабельный": "вы гибко подстраиваетесь к обстоятельствам, быстро считываете настроение среды и умеете находить нестандартные решения.",
+}
+
+ELEMENT_TRAITS = {
+    "Огонь": "вас ведут энергия, смелость, вдохновение и желание жить ярко.",
+    "Земля": "для вас важны опора, практичность, надёжность и ощутимый результат.",
+    "Воздух": "вы мыслите через идеи, смыслы, общение и интеллектуальное движение.",
+    "Вода": "ваша сила в чувствительности, интуиции, глубине переживаний и эмоциональной связи.",
+}
+
+ARCHETYPE_OPENERS = {
+    ("Кардинальный", "Огонь"): "Архетип лидера-инициатора. Вы загораетесь идеей быстро и умеете увлекать ею других.",
+    ("Кардинальный", "Земля"): "Архетип создателя структуры. Вы умеете не только начать, но и придать идее форму.",
+    ("Кардинальный", "Воздух"): "Архетип вдохновителя идей. Вы запускаете движение через слово, мысль и контакт с людьми.",
+    ("Кардинальный", "Вода"): "Архетип эмоционального проводника. Вы начинаете новое, опираясь на тонкое чувство момента.",
+    ("Фиксированный", "Огонь"): "Архетип внутреннего пламени. В вас много воли, достоинства и способности держать курс.",
+    ("Фиксированный", "Земля"): "Архетип надёжной опоры. Вы умеете строить долгоиграющие результаты и не распыляться.",
+    ("Фиксированный", "Воздух"): "Архетип убеждённого мыслителя. Ваши идеи отличаются стойкостью, принципами и верностью выбранной позиции.",
+    ("Фиксированный", "Вода"): "Архетип глубины и верности. Вы проживаете всё интенсивно и редко относитесь к чему-то поверхностно.",
+    ("Мутабельный", "Огонь"): "Архетип живого импульса. Вам важно движение, вдохновение и свобода менять маршрут по ходу пути.",
+    ("Мутабельный", "Земля"): "Архетип мастера адаптации. Вы умеете быть полезной, точной и гибкой одновременно.",
+    ("Мутабельный", "Воздух"): "Архетип коммуникатора и исследователя. Вы быстро улавливаете новые идеи и легко переходите между разными контекстами.",
+    ("Мутабельный", "Вода"): "Архетип тонкого эмпата. Вы хорошо чувствуете оттенки настроений и умеете мягко подстраиваться под поток жизни.",
+}
+
+GOOGLE_SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive",
+]
+
+
+def get_dominant_categories(counts):
+    if not counts:
+        return []
+    max_count = max(counts.values())
+    return [name for name, count in counts.items() if count == max_count and count > 0]
+
+
+def combine_labels(labels):
+    return "-".join(labels)
+
+
+def analyze_archetype(signs):
+    modality_counts = {"Кардинальный": 0, "Фиксированный": 0, "Мутабельный": 0}
+    element_counts = {"Огонь": 0, "Земля": 0, "Воздух": 0, "Вода": 0}
+
+    for sign in signs:
+        modality = SIGN_MODALITIES.get(sign)
+        element = SIGN_ELEMENTS.get(sign)
+        if modality:
+            modality_counts[modality] += 1
+        if element:
+            element_counts[element] += 1
+
+    dominant_modalities = get_dominant_categories(modality_counts)
+    dominant_elements = get_dominant_categories(element_counts)
+
+    archetype_name = f"{combine_labels(dominant_modalities)} {combine_labels(dominant_elements)}"
+
+    return {
+        "modality_counts": modality_counts,
+        "element_counts": element_counts,
+        "dominant_modalities": dominant_modalities,
+        "dominant_elements": dominant_elements,
+        "archetype_name": archetype_name,
+    }
+
+
+def build_archetype_report(signs):
+    archetype_data = analyze_archetype(signs)
+    dominant_modalities = archetype_data["dominant_modalities"]
+    dominant_elements = archetype_data["dominant_elements"]
+    archetype_name = archetype_data["archetype_name"]
+
+    parts = [
+        f"✨ Твой ведущий архетип: <b>{archetype_name}</b>."
+    ]
+
+    if len(dominant_modalities) == 1 and len(dominant_elements) == 1:
+        opener = ARCHETYPE_OPENERS.get((dominant_modalities[0], dominant_elements[0]))
+        if opener:
+            parts.append(opener)
+
+    modality_text = " ".join(MODALITY_TRAITS[name] for name in dominant_modalities)
+    element_text = " ".join(ELEMENT_TRAITS[name] for name in dominant_elements)
+    parts.append(f"По крестам это значит, что {modality_text}")
+    parts.append(f"По стихиям карта показывает, что {element_text}")
+
+    if len(dominant_modalities) > 1:
+        parts.append("У тебя смешанный тип по крестам, поэтому в характере соединяются сразу несколько стратегий: и импульс к действию, и устойчивость, и способность меняться по ситуации.")
+    if len(dominant_elements) > 1:
+        parts.append("По стихиям у тебя тоже не один акцент, а значит ты проявляешь себя многослойно и не сводишься к одному простому типажу.")
+
+    parts.append(
+        "Этот архетип мы определили по тому, в каких знаках находится большинство планет твоей натальной карты."
+    )
+
+    return "\n\n".join(parts), archetype_data
+
+
+def get_google_worksheet():
+    if not GOOGLE_SHEET_ID or not GOOGLE_SERVICE_ACCOUNT_JSON:
+        return None
+
+    try:
+        credentials_info = json.loads(GOOGLE_SERVICE_ACCOUNT_JSON)
+        credentials = Credentials.from_service_account_info(credentials_info, scopes=GOOGLE_SCOPES)
+        client = gspread.authorize(credentials)
+        spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
+        try:
+            worksheet = spreadsheet.worksheet(GOOGLE_WORKSHEET_NAME)
+        except gspread.WorksheetNotFound:
+            worksheet = spreadsheet.add_worksheet(title=GOOGLE_WORKSHEET_NAME, rows=1000, cols=30)
+
+        if not worksheet.cell(1, 1).value:
+            worksheet.update("A1:R1", [[
+                "saved_at",
+                "telegram_user_id",
+                "username",
+                "first_name",
+                "birth_date",
+                "birth_time",
+                "birth_city",
+                "latitude",
+                "longitude",
+                "timezone",
+                "sun_sign",
+                "moon_sign",
+                "asc_sign",
+                "dominant_modalities",
+                "dominant_elements",
+                "archetype_name",
+                "planet_signs_json",
+                "planet_houses_json",
+            ]])
+        return worksheet
+    except Exception:
+        logging.exception("Не удалось подключиться к Google Sheets")
+        return None
+
+
+def save_profile_to_google_sheets(message, profile_data):
+    worksheet = get_google_worksheet()
+    if not worksheet:
+        return
+
+    try:
+        worksheet.append_row([
+            datetime.datetime.utcnow().isoformat(),
+            str(message.from_user.id),
+            message.from_user.username or "",
+            message.from_user.first_name or "",
+            profile_data["birth_date"],
+            profile_data["birth_time"],
+            profile_data["birth_city"],
+            str(profile_data["latitude"]),
+            str(profile_data["longitude"]),
+            profile_data["timezone"],
+            profile_data["sun_sign"],
+            profile_data["moon_sign"],
+            profile_data["asc_sign"],
+            ", ".join(profile_data["dominant_modalities"]),
+            ", ".join(profile_data["dominant_elements"]),
+            profile_data["archetype_name"],
+            json.dumps(profile_data["planet_signs"], ensure_ascii=False),
+            json.dumps(profile_data["planet_houses"], ensure_ascii=False),
+        ])
+    except Exception:
+        logging.exception("Не удалось сохранить профиль в Google Sheets")
 
 
 def calculate_planet_positions(year, month, day, hour, minute, latitude, longitude):
@@ -218,31 +427,49 @@ async def process_place(message: types.Message, state: FSMContext):
                         return i + 1
             return 12
 
-        planet_data = []
+        planet_signs = []
+        planet_houses = {}
+        sun_sign_ru = ""
+        moon_sign_ru = ""
         for planet_id in PLANET_NAMES:
             try:
                 result, _ = swe.calc_ut(julday, planet_id)
                 lon = result[0]
                 sign_index = int(lon // 30)
-                sign = ZODIAC_SIGNS[sign_index]
+                sign_ru = SIGNS[sign_index]
                 house = find_house(lon, cuspids)
+                planet_signs.append(sign_ru)
+                planet_houses[PLANET_NAMES[planet_id]] = house
 
-                if house:
-                    planet_data.append(f"{PLANET_NAMES[planet_id]} — {sign} в доме {house}")
-                else:
-                    planet_data.append(f"{PLANET_NAMES[planet_id]} — {sign} (дом не найден)")
+                if planet_id == swe.SUN:
+                    sun_sign_ru = sign_ru
+                if planet_id == swe.MOON:
+                    moon_sign_ru = sign_ru
             except Exception as e:
                 logging.warning(f"Ошибка при расчёте {PLANET_NAMES[planet_id]}: {e}")
-                planet_data.append(f"{PLANET_NAMES[planet_id]} — данные не найдены.")
 
         # Добавим ASC и DSC
         asc = ascmc[0]
-        dsc = (asc + 180.0) % 360
-        asc_sign = ZODIAC_SIGNS[int(asc // 30)]
-        dsc_sign = ZODIAC_SIGNS[int(dsc // 30)]
-        planet_data.append(f"Ascendant (ASC) — {asc_sign} ({asc:.2f}°)")
-        planet_data.append(f"Descendant (DSC) — {dsc_sign} ({dsc:.2f}°)")
-        await message.reply("🪐 Вот базовые позиции планет на момент твоего рождения:\n\n" + "\n".join(planet_data))
+        asc_sign_ru = SIGNS[int(asc // 30)]
+
+        archetype_report, archetype_data = build_archetype_report(planet_signs)
+        save_profile_to_google_sheets(message, {
+            "birth_date": user_data["date"],
+            "birth_time": user_data["time"],
+            "birth_city": place_normalized,
+            "latitude": location.latitude,
+            "longitude": location.longitude,
+            "timezone": timezone_str,
+            "sun_sign": sun_sign_ru,
+            "moon_sign": moon_sign_ru,
+            "asc_sign": asc_sign_ru,
+            "dominant_modalities": archetype_data["dominant_modalities"],
+            "dominant_elements": archetype_data["dominant_elements"],
+            "archetype_name": archetype_data["archetype_name"],
+            "planet_signs": planet_signs,
+            "planet_houses": planet_houses,
+        })
+        await message.reply(archetype_report, parse_mode="HTML")
         await state.finish()
 
     except Exception as e:

@@ -6,3 +6,5 @@ timezonefinder
 pyswisseph==2.10.3.2
 pandas
 openpyxl
+gspread
+google-auth
