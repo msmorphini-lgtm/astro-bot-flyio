@@ -931,19 +931,12 @@ async def on_shutdown(dispatcher):
 if __name__ == '__main__':
     if WEBHOOK_URL:
         logging.info("Бот запускается в webhook-режиме на %s:%s", WEBAPP_HOST, WEBAPP_PORT)
-        web_app = web.Application()
-        web_app.router.add_get("/", index_page)
-        web_app.router.add_get("/healthz", healthcheck)
-        web_app.router.add_get(CARD_OF_DAY_PATH, card_of_day_webapp)
-        assets_dir = BASE_DIR / "webapp" / "assets"
-        if assets_dir.exists():
-            web_app.router.add_static("/miniapp-assets", assets_dir)
-        webhook_executor = executor.Executor(dp, skip_updates=True)
-        webhook_executor.set_web_app(web_app)
-        webhook_executor.on_startup(on_startup)
-        webhook_executor.on_shutdown(on_shutdown)
-        webhook_executor.start_webhook(
+        executor.start_webhook(
+            dispatcher=dp,
             webhook_path=WEBHOOK_PATH,
+            on_startup=on_startup,
+            on_shutdown=on_shutdown,
+            skip_updates=True,
             host=WEBAPP_HOST,
             port=WEBAPP_PORT,
         )
