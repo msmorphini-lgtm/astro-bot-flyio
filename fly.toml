@@ -1,0 +1,20 @@
+# fly.toml app configuration file generated for astro-bot-flyio on 2025-05-30T09:41:02+02:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+# fly.toml
+app = "astro-bot-flyio"
+primary_region = "otp"
+
+[build]
+
+[processes]
+  app = "python main.py"
+
+[deploy]
+  strategy = "rolling"
+  max_parallel = 1
+
+[autoscaling]
+  enabled = false

@@ -1,0 +1,8 @@
+aiogram==2.25.1
+python-dotenv
+geopy
+pytz
+timezonefinder
+pyswisseph==2.10.3.2
+pandas
+openpyxl
