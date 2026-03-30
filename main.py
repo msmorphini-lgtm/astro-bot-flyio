@@ -6,6 +6,7 @@ import logging
 import datetime
 import re
 import json
+from pathlib import Path
 import swisseph as swe
 
 from aiogram import Bot, Dispatcher, types
@@ -18,6 +19,7 @@ from timezonefinder import TimezoneFinder
 import pytz
 import gspread
 from google.oauth2.service_account import Credentials
+from aiohttp import web
 
 logging.basicConfig(level=logging.INFO)
 
@@ -30,6 +32,9 @@ WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", f"/webhook/{BOT_TOKEN}")
 WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}" if WEBHOOK_HOST else None
 WEBAPP_HOST = os.getenv("WEBAPP_HOST", "0.0.0.0")
 WEBAPP_PORT = int(os.getenv("PORT", os.getenv("WEBAPP_PORT", "8080")))
+BASE_DIR = Path(__file__).resolve().parent
+CARD_OF_DAY_PATH = "/miniapp/card-of-day"
+MINI_APP_URL = os.getenv("MINI_APP_URL") or (f"{WEBHOOK_HOST}{CARD_OF_DAY_PATH}" if WEBHOOK_HOST else None)
 GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID")
 GOOGLE_WORKSHEET_NAME = os.getenv("GOOGLE_WORKSHEET_NAME", "profiles")
 GOOGLE_SERVICE_ACCOUNT_JSON = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
@@ -616,6 +621,69 @@ class BirthData(StatesGroup):
     waiting_for_time = State()
     waiting_for_place = State()
 
+
+def build_main_keyboard():
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    kb.add(types.KeyboardButton("Сбросить 🌑"))
+    return kb
+
+
+FEATURE_TEXTS = {
+    "career": (
+        "💼 <b>Архетип и карьера</b>\n\n"
+        "Этот раздел подготовим следующим: здесь будет разбор сильных сторон архетипа в работе, деньгах, формате занятости и стиле проявления в профессии."
+    ),
+    "relations": (
+        "💞 <b>Архетип и отношения</b>\n\n"
+        "Здесь появится дополнительный разбор того, как архетип проявляется в близости, выборе партнёра, границах и сценариях отношений."
+    ),
+    "health": (
+        "🌿 <b>Архетип и здоровье</b>\n\n"
+        "Этот блок станет отдельным мягким разбором ресурса, ритма жизни и точек, где особенно важно бережное отношение к себе."
+    ),
+    "natal": (
+        "🔮 <b>Индивидуальный разбор натальной карты</b>\n\n"
+        "Здесь мы позже добавим сценарий записи на персональный разбор: бот задаст несколько уточняющих вопросов и поможет оставить заявку на консультацию."
+    ),
+    "question": (
+        "✨ <b>Свой вопрос</b>\n\n"
+        "Этот раздел станет входом для личного запроса: можно будет описать ситуацию, выбрать тему и получить дальнейший сценарий сопровождения или записи."
+    ),
+    "daily_unavailable": (
+        "🌙 <b>Карта дня</b>\n\n"
+        "Мини-приложение уже подготовлено в коде, осталось только привязать публичный URL. Как только `MINI_APP_URL` или `WEBHOOK_HOST` будут настроены, кнопка начнёт открывать экран карты дня прямо внутри Telegram."
+    ),
+}
+
+
+def build_post_archetype_keyboard():
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    if MINI_APP_URL:
+        kb.add(types.InlineKeyboardButton("Карта дня ✨", web_app=types.WebAppInfo(url=MINI_APP_URL)))
+    else:
+        kb.add(types.InlineKeyboardButton("Карта дня ✨", callback_data="feature:daily_unavailable"))
+    kb.add(types.InlineKeyboardButton("Архетип и карьера", callback_data="feature:career"))
+    kb.add(types.InlineKeyboardButton("Архетип и отношения", callback_data="feature:relations"))
+    kb.add(types.InlineKeyboardButton("Архетип и здоровье", callback_data="feature:health"))
+    kb.add(types.InlineKeyboardButton("Индивидуальный разбор натальной карты", callback_data="feature:natal"))
+    kb.add(types.InlineKeyboardButton("Свой вопрос", callback_data="feature:question"))
+    return kb
+
+
+async def card_of_day_webapp(request):
+    return web.FileResponse(BASE_DIR / "webapp" / "card_of_day.html")
+
+
+async def index_page(request):
+    return web.Response(
+        text="astro-bot is running",
+        content_type="text/plain",
+    )
+
+
+async def healthcheck(request):
+    return web.json_response({"ok": True})
+
 @dp.message_handler(commands=['start'])
 async def start(message: types.Message):
     greetings = [
@@ -623,8 +691,7 @@ async def start(message: types.Message):
         "Давай определим твой астрологический архетип. Введи дату рождения в формате ДД.ММ.ГГГГ 🌌",
         "Сейчас мы посмотрим, какой архетип заложен в твоей карте. Введи дату рождения: ДД.ММ.ГГГГ 🗓️"
     ]
-    kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.add(types.KeyboardButton("Сбросить 🌑"))
+    kb = build_main_keyboard()
     await message.reply(random.choice(greetings), parse_mode='HTML', reply_markup=kb)
     await BirthData.waiting_for_date.set()
 
@@ -784,6 +851,11 @@ async def process_place(message: types.Message, state: FSMContext):
             "planet_houses": planet_houses,
         })
         await message.reply(archetype_report, parse_mode="HTML")
+        await message.reply(
+            "Выбери, что хочешь открыть дальше. `Карта дня` откроется как mini app, остальные разделы уже стоят как каркас для следующих шагов.",
+            parse_mode="Markdown",
+            reply_markup=build_post_archetype_keyboard(),
+        )
         await state.finish()
 
     except Exception as e:
@@ -799,10 +871,47 @@ async def cmd_reset(message: types.Message, state: FSMContext):
 async def cmd_ping(message: types.Message):
     await message.reply("✅ Я на связи!")
 
+
+@dp.callback_query_handler(lambda call: call.data and call.data.startswith("feature:"))
+async def handle_feature_callbacks(call: types.CallbackQuery):
+    feature_key = call.data.split(":", 1)[1]
+    text = FEATURE_TEXTS.get(
+        feature_key,
+        "Этот раздел уже отмечен в боте, но текст-заглушка для него пока не настроен."
+    )
+    await call.answer()
+    await call.message.reply(text, parse_mode="HTML", reply_markup=build_post_archetype_keyboard())
+
+
+@dp.message_handler(content_types=types.ContentType.WEB_APP_DATA)
+async def handle_web_app_data(message: types.Message):
+    try:
+        payload = json.loads(message.web_app_data.data)
+        card_title = payload.get("title", "Карта дня")
+        card_symbol = payload.get("symbol", "✨")
+        card_message = payload.get("message", "")
+        focus = payload.get("focus", "")
+        mantra = payload.get("mantra", "")
+        date_label = payload.get("date_label", "")
+
+        parts = [f"{card_symbol} <b>{card_title}</b>"]
+        if date_label:
+            parts.append(f"<i>{date_label}</i>")
+        if card_message:
+            parts.append(card_message)
+        if focus:
+            parts.append(f"<b>Фокус дня:</b> {focus}")
+        if mantra:
+            parts.append(f"<b>Мантра:</b> {mantra}")
+
+        await message.reply("\n\n".join(parts), parse_mode="HTML")
+    except Exception:
+        logging.exception("Ошибка при обработке данных из mini app")
+        await message.reply("Не удалось прочитать данные из мини-приложения. Попробуй открыть карту дня ещё раз.")
+
 async def reset_state(message: types.Message, state: FSMContext):
     await state.finish()
-    kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.add(types.KeyboardButton("Сбросить 🌑"))
+    kb = build_main_keyboard()
     await message.reply("🔄 Всё сброшено. Начнём заново!\nВведи дату рождения в формате ДД.ММ.ГГГГ ✨", reply_markup=kb)
     await BirthData.waiting_for_date.set()
 
@@ -822,12 +931,19 @@ async def on_shutdown(dispatcher):
 if __name__ == '__main__':
     if WEBHOOK_URL:
         logging.info("Бот запускается в webhook-режиме на %s:%s", WEBAPP_HOST, WEBAPP_PORT)
-        executor.start_webhook(
-            dispatcher=dp,
+        web_app = web.Application()
+        web_app.router.add_get("/", index_page)
+        web_app.router.add_get("/healthz", healthcheck)
+        web_app.router.add_get(CARD_OF_DAY_PATH, card_of_day_webapp)
+        assets_dir = BASE_DIR / "webapp" / "assets"
+        if assets_dir.exists():
+            web_app.router.add_static("/miniapp-assets", assets_dir)
+        webhook_executor = executor.Executor(dp, skip_updates=True)
+        webhook_executor.set_web_app(web_app)
+        webhook_executor.on_startup(on_startup)
+        webhook_executor.on_shutdown(on_shutdown)
+        webhook_executor.start_webhook(
             webhook_path=WEBHOOK_PATH,
-            on_startup=on_startup,
-            on_shutdown=on_shutdown,
-            skip_updates=True,
             host=WEBAPP_HOST,
             port=WEBAPP_PORT,
         )
