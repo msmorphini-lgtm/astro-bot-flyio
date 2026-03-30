@@ -502,9 +502,6 @@ async def on_startup(dispatcher):
         logging.info("Webhook установлен: %s", WEBHOOK_URL)
 
 async def on_shutdown(dispatcher):
-    if WEBHOOK_URL:
-        await bot.delete_webhook()
-        logging.info("Webhook удалён")
     await dispatcher.storage.close()
     await dispatcher.storage.wait_closed()
 
