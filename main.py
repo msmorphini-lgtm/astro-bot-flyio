@@ -62,6 +62,9 @@ PLANET_NAMES = {
     swe.PLUTO: "Pluto"
 }
 
+PERSONAL_PLANETS = {"Sun", "Moon", "Mercury", "Venus", "Mars"}
+PRIORITY_POINTS = ["Sun", "Moon", "Ascendant", "Mercury", "Venus", "Mars"]
+
 SIGN_MODALITIES = {
     "Овен": "Кардинальный",
     "Рак": "Кардинальный",
@@ -137,7 +140,7 @@ def combine_labels(labels):
     return "-".join(labels)
 
 
-def analyze_archetype(signs):
+def build_category_counts(signs):
     modality_counts = {"Кардинальный": 0, "Фиксированный": 0, "Мутабельный": 0}
     element_counts = {"Огонь": 0, "Земля": 0, "Воздух": 0, "Вода": 0}
 
@@ -149,44 +152,82 @@ def analyze_archetype(signs):
         if element:
             element_counts[element] += 1
 
-    dominant_modalities = get_dominant_categories(modality_counts)
-    dominant_elements = get_dominant_categories(element_counts)
+    return modality_counts, element_counts
 
-    archetype_name = f"{combine_labels(dominant_modalities)} {combine_labels(dominant_elements)}"
+
+def resolve_dominant_category(counts, personal_signs, priority_signs, category_map):
+    leaders = get_dominant_categories(counts)
+    if len(leaders) == 1:
+        return leaders[0], leaders, "overall"
+
+    personal_counts = {name: 0 for name in counts}
+    for sign in personal_signs:
+        category = category_map.get(sign)
+        if category:
+            personal_counts[category] += 1
+
+    personal_leaders = get_dominant_categories(personal_counts)
+    filtered_personal = [name for name in personal_leaders if name in leaders]
+    if len(filtered_personal) == 1:
+        return filtered_personal[0], leaders, "personal"
+
+    for point_name in PRIORITY_POINTS:
+        sign = priority_signs.get(point_name)
+        category = category_map.get(sign) if sign else None
+        if category in leaders:
+            return category, leaders, f"priority:{point_name}"
+
+    return leaders[0], leaders, "fallback"
+
+
+def analyze_archetype(all_signs, personal_signs, priority_signs):
+    modality_counts, element_counts = build_category_counts(all_signs)
+    dominant_modality, modality_leaders, modality_source = resolve_dominant_category(
+        modality_counts, personal_signs, priority_signs, SIGN_MODALITIES
+    )
+    dominant_element, element_leaders, element_source = resolve_dominant_category(
+        element_counts, personal_signs, priority_signs, SIGN_ELEMENTS
+    )
+
+    archetype_name = f"{dominant_modality} {dominant_element}"
 
     return {
         "modality_counts": modality_counts,
         "element_counts": element_counts,
-        "dominant_modalities": dominant_modalities,
-        "dominant_elements": dominant_elements,
+        "dominant_modality": dominant_modality,
+        "dominant_element": dominant_element,
+        "modality_leaders": modality_leaders,
+        "element_leaders": element_leaders,
+        "modality_source": modality_source,
+        "element_source": element_source,
+        "personal_signs": personal_signs,
         "archetype_name": archetype_name,
     }
 
 
-def build_archetype_report(signs):
-    archetype_data = analyze_archetype(signs)
-    dominant_modalities = archetype_data["dominant_modalities"]
-    dominant_elements = archetype_data["dominant_elements"]
+def build_archetype_report(all_signs, personal_signs, priority_signs):
+    archetype_data = analyze_archetype(all_signs, personal_signs, priority_signs)
+    dominant_modality = archetype_data["dominant_modality"]
+    dominant_element = archetype_data["dominant_element"]
     archetype_name = archetype_data["archetype_name"]
 
     parts = [
         f"✨ Твой ведущий архетип: <b>{archetype_name}</b>."
     ]
 
-    if len(dominant_modalities) == 1 and len(dominant_elements) == 1:
-        opener = ARCHETYPE_OPENERS.get((dominant_modalities[0], dominant_elements[0]))
-        if opener:
-            parts.append(opener)
+    opener = ARCHETYPE_OPENERS.get((dominant_modality, dominant_element))
+    if opener:
+        parts.append(opener)
 
-    modality_text = " ".join(MODALITY_TRAITS[name] for name in dominant_modalities)
-    element_text = " ".join(ELEMENT_TRAITS[name] for name in dominant_elements)
+    modality_text = MODALITY_TRAITS[dominant_modality]
+    element_text = ELEMENT_TRAITS[dominant_element]
     parts.append(f"По крестам это значит, что {modality_text}")
     parts.append(f"По стихиям карта показывает, что {element_text}")
 
-    if len(dominant_modalities) > 1:
-        parts.append("У тебя смешанный тип по крестам, поэтому в характере соединяются сразу несколько стратегий: и импульс к действию, и устойчивость, и способность меняться по ситуации.")
-    if len(dominant_elements) > 1:
-        parts.append("По стихиям у тебя тоже не один акцент, а значит ты проявляешь себя многослойно и не сводишься к одному простому типажу.")
+    if archetype_data["modality_source"] != "overall":
+        parts.append("По крестам в карте есть близкие по силе акценты, поэтому окончательный ведущий тип мы уточнили по личным планетам и приоритетным точкам.")
+    if archetype_data["element_source"] != "overall":
+        parts.append("По стихиям в карте есть конкурирующие акценты, поэтому ведущую стихию мы определили через личные планеты и ключевые точки проявления.")
 
     parts.append(
         "Этот архетип мы определили по тому, в каких знаках находится большинство планет твоей натальной карты."
@@ -428,6 +469,8 @@ async def process_place(message: types.Message, state: FSMContext):
             return 12
 
         planet_signs = []
+        personal_signs = []
+        priority_signs = {}
         planet_houses = {}
         sun_sign_ru = ""
         moon_sign_ru = ""
@@ -439,7 +482,12 @@ async def process_place(message: types.Message, state: FSMContext):
                 sign_ru = SIGNS[sign_index]
                 house = find_house(lon, cuspids)
                 planet_signs.append(sign_ru)
-                planet_houses[PLANET_NAMES[planet_id]] = house
+                point_name = PLANET_NAMES[planet_id]
+                planet_houses[point_name] = house
+                priority_signs[point_name] = sign_ru
+
+                if point_name in PERSONAL_PLANETS:
+                    personal_signs.append(sign_ru)
 
                 if planet_id == swe.SUN:
                     sun_sign_ru = sign_ru
@@ -451,8 +499,9 @@ async def process_place(message: types.Message, state: FSMContext):
         # Добавим ASC и DSC
         asc = ascmc[0]
         asc_sign_ru = SIGNS[int(asc // 30)]
+        priority_signs["Ascendant"] = asc_sign_ru
 
-        archetype_report, archetype_data = build_archetype_report(planet_signs)
+        archetype_report, archetype_data = build_archetype_report(planet_signs, personal_signs, priority_signs)
         save_profile_to_google_sheets(message, {
             "birth_date": user_data["date"],
             "birth_time": user_data["time"],
@@ -463,8 +512,8 @@ async def process_place(message: types.Message, state: FSMContext):
             "sun_sign": sun_sign_ru,
             "moon_sign": moon_sign_ru,
             "asc_sign": asc_sign_ru,
-            "dominant_modalities": archetype_data["dominant_modalities"],
-            "dominant_elements": archetype_data["dominant_elements"],
+            "dominant_modalities": [archetype_data["dominant_modality"]],
+            "dominant_elements": [archetype_data["dominant_element"]],
             "archetype_name": archetype_data["archetype_name"],
             "planet_signs": planet_signs,
             "planet_houses": planet_houses,
