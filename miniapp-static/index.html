@@ -205,11 +205,11 @@
 
       .deck-card.is-selected {
         z-index: 8;
-        transform: translateX(0) translateY(8px) scale(1.2);
+        transform: translateX(0) translateY(-8px) scale(1.2);
       }
 
       .deck-card.is-revealed {
-        transform: translateX(0) translateY(46px) scale(1.62);
+        transform: translateX(0) translateY(-58px) scale(1.62);
       }
 
       .card-face {
@@ -336,8 +336,9 @@
         width: calc(100% - 18px);
         height: calc(100% - 18px);
         margin: 9px auto;
-        border-radius: 18px;
+        border-radius: 22px;
         background: transparent;
+        overflow: hidden;
       }
 
       .card-art {
@@ -354,7 +355,9 @@
       }
 
       .card-front.has-full-art .card-art {
-        object-fit: contain;
+        object-fit: cover;
+        transform: scale(1.04);
+        transform-origin: center;
         background: #08151d;
       }
 
@@ -437,7 +440,7 @@
       .reveal-panel {
         position: relative;
         z-index: 2;
-        margin-top: 28px;
+        margin-top: -54px;
         text-align: center;
         opacity: 0;
         transform: translateY(16px);
@@ -456,6 +459,10 @@
         margin: 0 auto;
         font-size: 18px;
         line-height: 1.55;
+      }
+
+      .message.is-hidden {
+        display: none;
       }
 
       .focus-box {
@@ -487,14 +494,18 @@
 
       .primary {
         width: 100%;
-        border: 1px solid var(--button-border);
+        border: 1px solid rgba(220, 193, 129, 0.72);
         border-radius: 16px;
         padding: 16px 18px;
         font: inherit;
         font-size: 18px;
         color: var(--text);
-        background: var(--button-bg);
-        box-shadow: 0 0 20px rgba(220, 193, 129, 0.08);
+        font-weight: 600;
+        background:
+          linear-gradient(180deg, rgba(24, 54, 63, 0.9), rgba(10, 24, 34, 0.96));
+        box-shadow:
+          0 12px 28px rgba(0, 0, 0, 0.18),
+          0 0 20px rgba(220, 193, 129, 0.16);
       }
 
       .footnote {
@@ -533,11 +544,11 @@
         }
 
         .deck-card.is-selected {
-          transform: translateX(0) translateY(8px) scale(1.14);
+          transform: translateX(0) translateY(-6px) scale(1.14);
         }
 
         .deck-card.is-revealed {
-          transform: translateX(0) translateY(36px) scale(1.48);
+          transform: translateX(0) translateY(-42px) scale(1.48);
         }
 
         .chooser-text,
@@ -627,65 +638,101 @@
         <div class="actions">
           <button class="primary" id="shareButton">Принять послание</button>
         </div>
-        <div class="footnote">Доступно раз в сутки. ✨</div>
+        <div class="footnote">Выбери ту карту, которая откликается тебе сейчас. ✨</div>
       </section>
     </main>
 
     <script>
       const cards = [
         {
-          title: "ФОКУС",
-          caption: "A clear beam cuts through uncertainty",
-          message: "Сегодня твоя сила в умении отсекать лишнее. Не пытайся объять необъятное. Выбери одну главную задачу или эмоцию и направь туда все свое внимание.",
-          focus: "Одна точка внимания даст больше, чем десять начатых направлений.",
-          shareTitle: "Фокус",
-          mantra: "Я собираю свою энергию в одну ясную цель.",
-          image: ""
+          title: "БЛАГОДАРНОСТЬ",
+          caption: "",
+          message: "",
+          focus: "Заметь то хорошее, что уже есть рядом с тобой, и опирайся на это состояние.",
+          shareTitle: "Благодарность",
+          mantra: "Я открываюсь изобилию через благодарность.",
+          image: "blagodarnost.png"
+        },
+        {
+          title: "ИНТУИЦИЯ",
+          caption: "",
+          message: "",
+          focus: "Слушай не шум вокруг, а свое тонкое внутреннее знание.",
+          shareTitle: "Интуиция",
+          mantra: "Я доверяю тихому голосу внутри себя.",
+          image: "intuicia.png"
+        },
+        {
+          title: "ИЗОБИЛИЕ",
+          caption: "",
+          message: "",
+          focus: "Разреши себе принять больше, чем привыкла, и не обесценивай свои возможности.",
+          shareTitle: "Изобилие",
+          mantra: "Я готова принимать жизнь во всей ее полноте.",
+          image: "izobilie.png"
+        },
+        {
+          title: "МУДРОСТЬ",
+          caption: "",
+          message: "",
+          focus: "Не спеши. Важно увидеть суть, прежде чем действовать.",
+          shareTitle: "Мудрость",
+          mantra: "Я выбираю ясность и внутреннюю зрелость.",
+          image: "mudrost.png"
         },
         {
           title: "ПОТОК",
-          caption: "The river moves without forcing the shore",
-          message: "День не про рывок, а про мягкое течение. Позволь событиям раскрыться в своем темпе и не торопи то, что должно созреть естественно.",
-          focus: "Мягкость сегодня сильнее давления.",
+          caption: "",
+          message: "",
+          focus: "Позволь событиям раскрываться без лишнего контроля и напряжения.",
           shareTitle: "Поток",
-          mantra: "Я доверяю ритму жизни и не спорю с ним.",
-          image: ""
+          mantra: "Я двигаюсь в согласии с естественным ритмом жизни.",
+          image: "potok.png"
         },
         {
-          title: "ИМПУЛЬС",
-          caption: "A spark appears before the path is fully seen",
-          message: "Сейчас не нужно ждать полной уверенности. Достаточно почувствовать внутренний импульс и сделать один живой шаг туда, где давно назрело движение.",
-          focus: "Решительность рождается в действии.",
-          shareTitle: "Импульс",
-          mantra: "Я выбираю смелость раньше идеальной ясности.",
-          image: ""
+          title: "СМЕЛОСТЬ",
+          caption: "",
+          message: "",
+          focus: "Сделай шаг туда, где раньше сдерживал страх, но уже выросла внутренняя готовность.",
+          shareTitle: "Смелость",
+          mantra: "Я выбираю движение, даже если путь раскрывается не сразу.",
+          image: "smelost.png"
+        },
+        {
+          title: "СТРАСТЬ",
+          caption: "",
+          message: "",
+          focus: "Вспомни, что по-настоящему зажигает тебя, и дай этому место сегодня.",
+          shareTitle: "Страсть",
+          mantra: "Я разрешаю себе жить ярко и чувствовать глубоко.",
+          image: "strast.png"
+        },
+        {
+          title: "ТРАНСФОРМАЦИЯ",
+          caption: "",
+          message: "",
+          focus: "Позволь старому завершиться, чтобы появилось место для нового этапа.",
+          shareTitle: "Трансформация",
+          mantra: "Я не боюсь перемен, которые ведут меня к росту.",
+          image: "transformaciya.png"
+        },
+        {
+          title: "ВОССТАНОВЛЕНИЕ",
+          caption: "",
+          message: "",
+          focus: "Твоя задача не ускоряться, а бережно вернуть себе ресурс и опору.",
+          shareTitle: "Восстановление",
+          mantra: "Я выбираю ритм, в котором могу действительно восстановиться.",
+          image: "vvostanovlenie.png"
         },
         {
           title: "ЗАЗЕМЛЕНИЕ",
-          caption: "The strongest roots grow in stillness",
-          message: "Сегодня твоя сила в опоре на реальность. Обрати внимание на тело, найди ясность в простых действиях и не пытайся решать все сразу.",
+          caption: "",
+          message: "",
           focus: "Почувствуй почву под ногами и вернись к самому важному.",
           shareTitle: "Заземление",
           mantra: "Я строю устойчивость через простые и верные шаги.",
           image: "zazemlenie_optimized.png"
-        },
-        {
-          title: "ЗЕРКАЛО",
-          caption: "What touches you reveals what is ready to heal",
-          message: "Все, что сегодня отзовется особенно сильно, может оказаться важной подсказкой. Не спеши защищаться. Сначала посмотри, что именно жизнь показывает тебе через отражение.",
-          focus: "Наблюдение важнее мгновенной реакции.",
-          shareTitle: "Зеркало",
-          mantra: "Я выбираю осознанность там, где раньше была автоматичность.",
-          image: ""
-        },
-        {
-          title: "РАСКРЫТИЕ",
-          caption: "A quiet opening changes the whole horizon",
-          message: "День помогает заметить дверь, которую ты раньше не рассматривала всерьез. Присмотрись к новой идее, разговору или приглашению: в них может скрываться следующий этап.",
-          focus: "Новое приходит мягко, а не громко.",
-          shareTitle: "Раскрытие",
-          mantra: "Я открыта тому, что приходит вовремя.",
-          image: ""
         }
       ];
 
@@ -704,6 +751,7 @@
       const chooser = document.getElementById("chooser");
       const revealPanel = document.getElementById("revealPanel");
       const deckCards = Array.from(document.querySelectorAll(".deck-card"));
+      const messageElement = document.getElementById("message");
       let selectedCard = null;
 
       function hashString(input) {
@@ -715,24 +763,11 @@
         return Math.abs(hash);
       }
 
-      function createSeededRandom(seed) {
-        let state = seed % 2147483647;
-        if (state <= 0) {
-          state += 2147483646;
-        }
-
-        return function next() {
-          state = (state * 16807) % 2147483647;
-          return (state - 1) / 2147483646;
-        };
-      }
-
-      function pickDailyCards(seed) {
-        const random = createSeededRandom(seed);
+      function pickRandomCards() {
         const pool = [...cards];
 
         for (let i = pool.length - 1; i > 0; i -= 1) {
-          const j = Math.floor(random() * (i + 1));
+          const j = Math.floor(Math.random() * (i + 1));
           const temp = pool[i];
           pool[i] = pool[j];
           pool[j] = temp;
@@ -748,11 +783,7 @@
 
       function getDailySet() {
         const now = new Date();
-        const userId = tg && tg.initDataUnsafe && tg.initDataUnsafe.user
-          ? String(tg.initDataUnsafe.user.id)
-          : "guest";
-        const seed = userId + "|" + now.getFullYear() + "-" + (now.getMonth() + 1) + "-" + now.getDate();
-        const set = pickDailyCards(hashString(seed));
+        const set = pickRandomCards();
 
         return {
           set,
@@ -813,7 +844,13 @@
         }, 220);
 
         window.setTimeout(() => {
-          document.getElementById("message").textContent = card.message;
+          if (card.image) {
+            messageElement.textContent = "";
+            messageElement.classList.add("is-hidden");
+          } else {
+            messageElement.textContent = card.message;
+            messageElement.classList.remove("is-hidden");
+          }
           document.getElementById("focusValue").textContent = card.focus;
           revealPanel.classList.add("is-visible");
         }, 760);
