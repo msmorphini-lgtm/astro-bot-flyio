@@ -38,6 +38,12 @@ MINI_APP_URL = os.getenv("MINI_APP_URL") or (f"{WEBHOOK_HOST}{CARD_OF_DAY_PATH}"
 GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID")
 GOOGLE_WORKSHEET_NAME = os.getenv("GOOGLE_WORKSHEET_NAME", "profiles")
 GOOGLE_SERVICE_ACCOUNT_JSON = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
+SUPPORT_WORKSHEET_NAME = os.getenv("GOOGLE_SUPPORT_WORKSHEET_NAME", "support_requests")
+DEV_TELEGRAM_IDS = {
+    int(value.strip())
+    for value in os.getenv("DEV_TELEGRAM_IDS", "").split(",")
+    if value.strip().isdigit()
+}
 
 bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
@@ -494,6 +500,7 @@ def build_archetype_report(all_signs, personal_signs, priority_signs):
             f"Ваш микс крестов {dominant_modality} + {secondary_modality} говорит о том, что вы {extra_modality_text[0].lower() + extra_modality_text[1:]}"
         )
 
+    archetype_data["archetype_title"] = title
     return "\n\n".join(parts), archetype_data
 
 
@@ -511,32 +518,129 @@ def get_google_worksheet():
         except gspread.WorksheetNotFound:
             worksheet = spreadsheet.add_worksheet(title=GOOGLE_WORKSHEET_NAME, rows=1000, cols=30)
 
-        if not worksheet.cell(1, 1).value:
-            worksheet.update("A1:R1", [[
-                "saved_at",
-                "telegram_user_id",
-                "username",
-                "first_name",
-                "birth_date",
-                "birth_time",
-                "birth_city",
-                "latitude",
-                "longitude",
-                "timezone",
-                "sun_sign",
-                "moon_sign",
-                "asc_sign",
-                "dominant_modalities",
-                "dominant_elements",
-                "archetype_name",
-                "planet_summary",
-                "planet_signs_json",
-                "planet_houses_json",
-            ]])
+        headers = [[
+            "saved_at",
+            "telegram_user_id",
+            "username",
+            "first_name",
+            "birth_date",
+            "birth_time",
+            "birth_city",
+            "latitude",
+            "longitude",
+            "timezone",
+            "sun_sign",
+            "moon_sign",
+            "asc_sign",
+            "dominant_modalities",
+            "dominant_elements",
+            "archetype_name",
+            "planet_summary",
+            "planet_signs_json",
+            "planet_houses_json",
+            "archetype_report",
+        ]]
+        if worksheet.row_values(1) != headers[0]:
+            worksheet.update("A1:T1", headers)
         return worksheet
     except Exception:
         logging.exception("Не удалось подключиться к Google Sheets")
         return None
+
+
+def get_support_worksheet():
+    if not GOOGLE_SHEET_ID or not GOOGLE_SERVICE_ACCOUNT_JSON:
+        return None
+
+    try:
+        credentials_info = json.loads(GOOGLE_SERVICE_ACCOUNT_JSON)
+        credentials = Credentials.from_service_account_info(credentials_info, scopes=GOOGLE_SCOPES)
+        client = gspread.authorize(credentials)
+        spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
+        try:
+            worksheet = spreadsheet.worksheet(SUPPORT_WORKSHEET_NAME)
+        except gspread.WorksheetNotFound:
+            worksheet = spreadsheet.add_worksheet(title=SUPPORT_WORKSHEET_NAME, rows=1000, cols=10)
+
+        if not worksheet.cell(1, 1).value:
+            worksheet.update("A1:G1", [[
+                "saved_at",
+                "telegram_user_id",
+                "username",
+                "first_name",
+                "archetype_name",
+                "message",
+                "status",
+            ]])
+        return worksheet
+    except Exception:
+        logging.exception("Не удалось подключиться к листу support")
+        return None
+
+
+def normalize_saved_row(row):
+    if not row:
+        return None
+    return {
+        "saved_at": row.get("saved_at", ""),
+        "telegram_user_id": str(row.get("telegram_user_id", "")).strip(),
+        "username": row.get("username", ""),
+        "first_name": row.get("first_name", ""),
+        "birth_date": row.get("birth_date", ""),
+        "birth_time": row.get("birth_time", ""),
+        "birth_city": row.get("birth_city", ""),
+        "latitude": row.get("latitude", ""),
+        "longitude": row.get("longitude", ""),
+        "timezone": row.get("timezone", ""),
+        "sun_sign": row.get("sun_sign", ""),
+        "moon_sign": row.get("moon_sign", ""),
+        "asc_sign": row.get("asc_sign", ""),
+        "dominant_modalities": row.get("dominant_modalities", ""),
+        "dominant_elements": row.get("dominant_elements", ""),
+        "archetype_name": row.get("archetype_name", ""),
+        "planet_summary": row.get("planet_summary", ""),
+        "planet_signs_json": row.get("planet_signs_json", ""),
+        "planet_houses_json": row.get("planet_houses_json", ""),
+        "archetype_report": row.get("archetype_report", ""),
+    }
+
+
+def find_profile_row(worksheet, user_id):
+    records = worksheet.get_all_records()
+    user_id = str(user_id)
+    for index, row in enumerate(records, start=2):
+        if str(row.get("telegram_user_id", "")).strip() == user_id:
+            return index, normalize_saved_row(row)
+    return None, None
+
+
+def get_user_profile(user_id):
+    worksheet = get_google_worksheet()
+    if not worksheet:
+        return None
+    _, row = find_profile_row(worksheet, user_id)
+    return row
+
+
+def save_support_request(message, profile, complaint_text):
+    worksheet = get_support_worksheet()
+    if not worksheet:
+        return False
+
+    try:
+        worksheet.append_row([
+            datetime.datetime.utcnow().isoformat(),
+            str(message.from_user.id),
+            message.from_user.username or "",
+            message.from_user.first_name or "",
+            (profile or {}).get("archetype_name", ""),
+            complaint_text,
+            "new",
+        ])
+        return True
+    except Exception:
+        logging.exception("Не удалось сохранить обращение в support")
+        return False
 
 
 def save_profile_to_google_sheets(message, profile_data):
@@ -545,7 +649,7 @@ def save_profile_to_google_sheets(message, profile_data):
         return
 
     try:
-        worksheet.append_row([
+        row_values = [
             datetime.datetime.utcnow().isoformat(),
             str(message.from_user.id),
             message.from_user.username or "",
@@ -565,7 +669,13 @@ def save_profile_to_google_sheets(message, profile_data):
             profile_data["planet_summary"],
             json.dumps(profile_data["planet_signs"], ensure_ascii=False),
             json.dumps(profile_data["planet_houses"], ensure_ascii=False),
-        ])
+            profile_data["archetype_report"],
+        ]
+        row_index, _ = find_profile_row(worksheet, message.from_user.id)
+        if row_index:
+            worksheet.update(f"A{row_index}:T{row_index}", [row_values])
+        else:
+            worksheet.append_row(row_values)
     except Exception:
         logging.exception("Не удалось сохранить профиль в Google Sheets")
 
@@ -622,9 +732,25 @@ class BirthData(StatesGroup):
     waiting_for_place = State()
 
 
+class SupportFlow(StatesGroup):
+    waiting_for_message = State()
+
+
 def build_main_keyboard():
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.add(types.KeyboardButton("Сбросить 🌑"))
+    kb.row(
+        types.KeyboardButton("Карьера"),
+        types.KeyboardButton("Бизнес"),
+    )
+    kb.row(
+        types.KeyboardButton("Отношения"),
+        types.KeyboardButton("Здоровье"),
+    )
+    kb.row(
+        types.KeyboardButton("Натальная карта"),
+        types.KeyboardButton("Вопрос"),
+    )
+    kb.row(types.KeyboardButton("Саппорт"))
     return kb
 
 
@@ -632,6 +758,10 @@ FEATURE_TEXTS = {
     "career": (
         "💼 <b>Архетип и карьера</b>\n\n"
         "Этот раздел подготовим следующим: здесь будет разбор сильных сторон архетипа в работе, деньгах, формате занятости и стиле проявления в профессии."
+    ),
+    "business": (
+        "📈 <b>Архетип и бизнес</b>\n\n"
+        "Этот раздел подготовим следующим: здесь будет разбор того, как твой архетип проявляется в предпринимательстве, лидерстве, деньгах и масштабировании."
     ),
     "relations": (
         "💞 <b>Архетип и отношения</b>\n\n"
@@ -649,6 +779,10 @@ FEATURE_TEXTS = {
         "✨ <b>Свой вопрос</b>\n\n"
         "Этот раздел станет входом для личного запроса: можно будет описать ситуацию, выбрать тему и получить дальнейший сценарий сопровождения или записи."
     ),
+    "support": (
+        "🛠 <b>Саппорт</b>\n\n"
+        "Напиши одним сообщением, что именно не работает или что хотелось бы улучшить. Я сохраню обращение для разбора."
+    ),
     "daily_unavailable": (
         "🌙 <b>Карта дня</b>\n\n"
         "Мини-приложение уже подготовлено в коде, осталось только привязать публичный URL. Как только `MINI_APP_URL` или `WEBHOOK_HOST` будут настроены, кнопка начнёт открывать экран карты дня прямо внутри Telegram."
@@ -663,10 +797,12 @@ def build_post_archetype_keyboard():
     else:
         kb.add(types.InlineKeyboardButton("Карта дня ✨", callback_data="feature:daily_unavailable"))
     kb.add(types.InlineKeyboardButton("Архетип и карьера", callback_data="feature:career"))
+    kb.add(types.InlineKeyboardButton("Архетип и бизнес", callback_data="feature:business"))
     kb.add(types.InlineKeyboardButton("Архетип и отношения", callback_data="feature:relations"))
     kb.add(types.InlineKeyboardButton("Архетип и здоровье", callback_data="feature:health"))
-    kb.add(types.InlineKeyboardButton("Индивидуальный разбор натальной карты", callback_data="feature:natal"))
+    kb.add(types.InlineKeyboardButton("Натальная карта", callback_data="feature:natal"))
     kb.add(types.InlineKeyboardButton("Свой вопрос", callback_data="feature:question"))
+    kb.add(types.InlineKeyboardButton("Саппорт", callback_data="feature:support"))
     return kb
 
 
@@ -684,8 +820,64 @@ async def index_page(request):
 async def healthcheck(request):
     return web.json_response({"ok": True})
 
+
+def is_developer(user_id):
+    return user_id in DEV_TELEGRAM_IDS
+
+
+def build_saved_profile_text(profile):
+    archetype = profile.get("archetype_name") or "не определён"
+    birth_date = profile.get("birth_date") or "—"
+    birth_time = profile.get("birth_time") or "—"
+    birth_city = profile.get("birth_city") or "—"
+    return (
+        "✨ <b>Твой профиль уже сохранён</b>\n\n"
+        f"<b>Архетип:</b> {archetype}\n"
+        f"<b>Дата рождения:</b> {birth_date}\n"
+        f"<b>Время:</b> {birth_time}\n"
+        f"<b>Место:</b> {birth_city}\n\n"
+        "Ниже можешь открыть нужный раздел и продолжить работу с ботом."
+    )
+
+
+def build_natal_text(profile):
+    archetype_report = profile.get("archetype_report", "").strip()
+    planet_summary = profile.get("planet_summary", "").strip()
+    parts = ["🔮 <b>Твоя натальная карта</b>"]
+    if archetype_report:
+        parts.append(archetype_report)
+    if planet_summary:
+        parts.append(f"<b>Положение планет:</b>\n{planet_summary.replace(' | ', chr(10))}")
+    return "\n\n".join(parts)
+
+
+async def send_feature_response(message, feature_key, profile=None):
+    if feature_key == "natal" and profile:
+        await message.reply(build_natal_text(profile), parse_mode="HTML", reply_markup=build_post_archetype_keyboard())
+        return
+    if feature_key == "support":
+        await SupportFlow.waiting_for_message.set()
+    text = FEATURE_TEXTS.get(
+        feature_key,
+        "Этот раздел уже отмечен в боте, но текст-заглушка для него пока не настроен."
+    )
+    await message.reply(text, parse_mode="HTML", reply_markup=build_post_archetype_keyboard())
+
 @dp.message_handler(commands=['start'])
 async def start(message: types.Message):
+    profile = get_user_profile(message.from_user.id)
+    if profile:
+        await message.reply(
+            build_saved_profile_text(profile),
+            parse_mode="HTML",
+            reply_markup=build_main_keyboard(),
+        )
+        await message.reply(
+            "Выбери раздел ниже или открой карту дня.",
+            reply_markup=build_post_archetype_keyboard(),
+        )
+        return
+
     greetings = [
         "Привет! Я помогу тебе узнать твой астрологический архетип. Для начала введи дату рождения в формате ДД.ММ.ГГГГ ✨",
         "Давай определим твой астрологический архетип. Введи дату рождения в формате ДД.ММ.ГГГГ 🌌",
@@ -697,11 +889,20 @@ async def start(message: types.Message):
 
 @dp.message_handler(lambda message: message.text == "Сбросить 🌑", state="*")
 async def handle_reset_button(message: types.Message, state: FSMContext):
-    await reset_state(message, state)
+    if is_developer(message.from_user.id):
+        await reset_state(message, state)
+    else:
+        await message.reply("Сброс профиля недоступен в пользовательском режиме. Если есть проблема, напиши в саппорт.")
 
 @dp.message_handler(state=BirthData.waiting_for_date)
 async def process_date(message: types.Message, state: FSMContext):
     try:
+        if get_user_profile(message.from_user.id) and not is_developer(message.from_user.id):
+            await state.finish()
+            profile = get_user_profile(message.from_user.id)
+            await message.reply(build_saved_profile_text(profile), parse_mode="HTML", reply_markup=build_main_keyboard())
+            await message.reply("Твой профиль уже сохранён. Ниже доступны все разделы.", reply_markup=build_post_archetype_keyboard())
+            return
         normalized_date = normalize_date_input(message.text)
         if not normalized_date:
             await message.reply("Я могу принять дату в форматах 25.06.1992, 25/06/1992, 25 06 1992 или 25/06/92.")
@@ -730,6 +931,12 @@ async def process_time(message: types.Message, state: FSMContext):
 @dp.message_handler(state=BirthData.waiting_for_place)
 async def process_place(message: types.Message, state: FSMContext):
     try:
+        if get_user_profile(message.from_user.id) and not is_developer(message.from_user.id):
+            await state.finish()
+            profile = get_user_profile(message.from_user.id)
+            await message.reply(build_saved_profile_text(profile), parse_mode="HTML", reply_markup=build_main_keyboard())
+            await message.reply("Твой профиль уже сохранён. Ниже доступны все разделы.", reply_markup=build_post_archetype_keyboard())
+            return
         place = message.text.strip().lower()
         place_normalized = CITY_NORMALIZATION.get(place, place.title())
         location = geolocator.geocode(place_normalized)
@@ -845,7 +1052,8 @@ async def process_place(message: types.Message, state: FSMContext):
             "asc_sign": asc_sign_ru,
             "dominant_modalities": [archetype_data["dominant_modality"]],
             "dominant_elements": [archetype_data["dominant_element"]],
-            "archetype_name": archetype_data["archetype_name"],
+            "archetype_name": archetype_data["archetype_title"],
+            "archetype_report": archetype_report,
             "planet_summary": " | ".join(planet_summary_rows),
             "planet_signs": planet_signs,
             "planet_houses": planet_houses,
@@ -865,6 +1073,9 @@ async def process_place(message: types.Message, state: FSMContext):
 
 @dp.message_handler(commands=['reset'])
 async def cmd_reset(message: types.Message, state: FSMContext):
+    if not is_developer(message.from_user.id):
+        await message.reply("Эта команда доступна только разработчику.")
+        return
     await reset_state(message, state)
 
 @dp.message_handler(commands=['ping'])
@@ -872,15 +1083,26 @@ async def cmd_ping(message: types.Message):
     await message.reply("✅ Я на связи!")
 
 
+@dp.message_handler(commands=['dev_me'])
+async def cmd_dev_me(message: types.Message):
+    if not is_developer(message.from_user.id):
+        return
+    await message.reply(f"Developer mode\nuser_id={message.from_user.id}")
+
+
+@dp.message_handler(commands=['dev_reset_profile'])
+async def cmd_dev_reset_profile(message: types.Message, state: FSMContext):
+    if not is_developer(message.from_user.id):
+        return
+    await reset_state(message, state)
+
+
 @dp.callback_query_handler(lambda call: call.data and call.data.startswith("feature:"))
 async def handle_feature_callbacks(call: types.CallbackQuery):
     feature_key = call.data.split(":", 1)[1]
-    text = FEATURE_TEXTS.get(
-        feature_key,
-        "Этот раздел уже отмечен в боте, но текст-заглушка для него пока не настроен."
-    )
     await call.answer()
-    await call.message.reply(text, parse_mode="HTML", reply_markup=build_post_archetype_keyboard())
+    profile = get_user_profile(call.from_user.id)
+    await send_feature_response(call.message, feature_key, profile=profile)
 
 
 @dp.message_handler(content_types=types.ContentType.WEB_APP_DATA)
@@ -908,6 +1130,46 @@ async def handle_web_app_data(message: types.Message):
     except Exception:
         logging.exception("Ошибка при обработке данных из mini app")
         await message.reply("Не удалось прочитать данные из мини-приложения. Попробуй открыть карту дня ещё раз.")
+
+
+MENU_ACTIONS = {
+    "Карьера": "career",
+    "Бизнес": "business",
+    "Отношения": "relations",
+    "Здоровье": "health",
+    "Натальная карта": "natal",
+    "Вопрос": "question",
+    "Саппорт": "support",
+}
+
+
+@dp.message_handler(lambda message: message.text in MENU_ACTIONS, state="*")
+async def handle_menu_buttons(message: types.Message, state: FSMContext):
+    profile = get_user_profile(message.from_user.id)
+    if not profile:
+        await message.reply("Сначала нужно один раз заполнить дату, время и место рождения, чтобы я сохранил твой профиль.")
+        await BirthData.waiting_for_date.set()
+        return
+
+    if MENU_ACTIONS[message.text] != "support":
+        await state.finish()
+    await send_feature_response(message, MENU_ACTIONS[message.text], profile=profile)
+
+
+@dp.message_handler(state=SupportFlow.waiting_for_message, content_types=types.ContentTypes.TEXT)
+async def handle_support_message(message: types.Message, state: FSMContext):
+    complaint_text = message.text.strip()
+    if len(complaint_text) < 5:
+        await message.reply("Опиши проблему чуть подробнее, чтобы я мог сохранить обращение.")
+        return
+
+    profile = get_user_profile(message.from_user.id)
+    success = save_support_request(message, profile, complaint_text)
+    await state.finish()
+    if success:
+        await message.reply("Спасибо, я сохранил обращение в саппорт. Можешь продолжать пользоваться ботом.", reply_markup=build_main_keyboard())
+    else:
+        await message.reply("Не удалось сохранить обращение в таблицу, но я уже знаю, что этот блок нужно проверить.", reply_markup=build_main_keyboard())
 
 async def reset_state(message: types.Message, state: FSMContext):
     await state.finish()
