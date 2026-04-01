@@ -209,7 +209,7 @@
       }
 
       .deck-card.is-revealed {
-        transform: translateX(0) translateY(-58px) scale(1.62);
+        transform: translateX(0) translateY(-82px) scale(1.62);
       }
 
       .card-face {
@@ -361,6 +361,11 @@
         background: #08151d;
       }
 
+      .card-front.has-full-art.is-contain-art .card-art {
+        object-fit: contain;
+        transform: scale(0.98);
+      }
+
       .card-image.has-art .beam,
       .card-image.has-art .beam-glow,
       .card-image.has-art .tower,
@@ -440,7 +445,7 @@
       .reveal-panel {
         position: relative;
         z-index: 2;
-        margin-top: -54px;
+        margin-top: -82px;
         text-align: center;
         opacity: 0;
         transform: translateY(16px);
@@ -548,7 +553,7 @@
         }
 
         .deck-card.is-revealed {
-          transform: translateX(0) translateY(-42px) scale(1.48);
+          transform: translateX(0) translateY(-60px) scale(1.48);
         }
 
         .chooser-text,
@@ -651,7 +656,8 @@
           focus: "Заметь то хорошее, что уже есть рядом с тобой, и опирайся на это состояние.",
           shareTitle: "Благодарность",
           mantra: "Я открываюсь изобилию через благодарность.",
-          image: "blagodarnost.png"
+          image: "blagodarnost.png",
+          fit: "contain"
         },
         {
           title: "ИНТУИЦИЯ",
@@ -660,7 +666,8 @@
           focus: "Слушай не шум вокруг, а свое тонкое внутреннее знание.",
           shareTitle: "Интуиция",
           mantra: "Я доверяю тихому голосу внутри себя.",
-          image: "intuicia.png"
+          image: "intuicia.png",
+          fit: "contain"
         },
         {
           title: "ИЗОБИЛИЕ",
@@ -669,7 +676,8 @@
           focus: "Разреши себе принять больше, чем привыкла, и не обесценивай свои возможности.",
           shareTitle: "Изобилие",
           mantra: "Я готова принимать жизнь во всей ее полноте.",
-          image: "izobilie.png"
+          image: "izobilie.png",
+          fit: "contain"
         },
         {
           title: "МУДРОСТЬ",
@@ -678,7 +686,8 @@
           focus: "Не спеши. Важно увидеть суть, прежде чем действовать.",
           shareTitle: "Мудрость",
           mantra: "Я выбираю ясность и внутреннюю зрелость.",
-          image: "mudrost.png"
+          image: "mudrost.png",
+          fit: "contain"
         },
         {
           title: "ПОТОК",
@@ -687,7 +696,8 @@
           focus: "Позволь событиям раскрываться без лишнего контроля и напряжения.",
           shareTitle: "Поток",
           mantra: "Я двигаюсь в согласии с естественным ритмом жизни.",
-          image: "potok.png"
+          image: "potok.png",
+          fit: "contain"
         },
         {
           title: "СМЕЛОСТЬ",
@@ -696,7 +706,8 @@
           focus: "Сделай шаг туда, где раньше сдерживал страх, но уже выросла внутренняя готовность.",
           shareTitle: "Смелость",
           mantra: "Я выбираю движение, даже если путь раскрывается не сразу.",
-          image: "smelost.png"
+          image: "smelost.png",
+          fit: "contain"
         },
         {
           title: "СТРАСТЬ",
@@ -705,7 +716,8 @@
           focus: "Вспомни, что по-настоящему зажигает тебя, и дай этому место сегодня.",
           shareTitle: "Страсть",
           mantra: "Я разрешаю себе жить ярко и чувствовать глубоко.",
-          image: "strast.png"
+          image: "strast.png",
+          fit: "contain"
         },
         {
           title: "ТРАНСФОРМАЦИЯ",
@@ -714,7 +726,8 @@
           focus: "Позволь старому завершиться, чтобы появилось место для нового этапа.",
           shareTitle: "Трансформация",
           mantra: "Я не боюсь перемен, которые ведут меня к росту.",
-          image: "transformaciya.png"
+          image: "transformaciya.png",
+          fit: "contain"
         },
         {
           title: "ВОССТАНОВЛЕНИЕ",
@@ -723,7 +736,8 @@
           focus: "Твоя задача не ускоряться, а бережно вернуть себе ресурс и опору.",
           shareTitle: "Восстановление",
           mantra: "Я выбираю ритм, в котором могу действительно восстановиться.",
-          image: "vvostanovlenie.png"
+          image: "vvostanovlenie.png",
+          fit: "contain"
         },
         {
           title: "ЗАЗЕМЛЕНИЕ",
@@ -732,7 +746,8 @@
           focus: "Почувствуй почву под ногами и вернись к самому важному.",
           shareTitle: "Заземление",
           mantra: "Я строю устойчивость через простые и верные шаги.",
-          image: "zazemlenie_optimized.png"
+          image: "zazemlenie_optimized.png",
+          fit: "cover"
         }
       ];
 
@@ -805,6 +820,7 @@
         deckCards.forEach((button, index) => {
           const card = cardSet[index];
           const front = button.querySelector(".card-front");
+          front.classList.remove("is-contain-art");
           button.querySelector(".card-title").textContent = card.title;
           button.querySelector(".caption").textContent = card.caption;
           const image = button.querySelector(".card-image");
@@ -813,6 +829,9 @@
           if (assetUrl) {
             image.classList.add("has-art");
             front.classList.add("has-full-art");
+            if (card.fit === "contain") {
+              front.classList.add("is-contain-art");
+            }
             art.src = assetUrl;
             art.alt = card.title;
           } else {
