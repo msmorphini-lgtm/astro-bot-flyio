@@ -504,7 +504,7 @@ def build_archetype_report(all_signs, personal_signs, priority_signs):
         if not extra_modality_text:
             extra_modality_text = f"Дополнительный акцент креста {secondary_modality.lower()} меняет ваш стиль действий и делает его гибче."
         parts.append(
-            f"Ваш микс крестов {dominant_modality} + {secondary_modality} говорит о том, что вы {extra_modality_text[0].lower() + extra_modality_text[1:]}"
+            f"Ваш микс крестов {dominant_modality} + {secondary_modality} говорит о дополнительном стиле действия. {extra_modality_text}"
         )
 
     archetype_data["archetype_title"] = title
