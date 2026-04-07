@@ -736,8 +736,24 @@ class SupportFlow(StatesGroup):
     waiting_for_message = State()
 
 
-def build_main_keyboard():
+def build_main_keyboard(profile_exists=False, expanded=False, developer=False):
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    if not profile_exists:
+        kb.row(types.KeyboardButton("Старт ✨"))
+        if developer:
+            kb.row(types.KeyboardButton("Сбросить 🌑"))
+        return kb
+
+    if not expanded:
+        kb.row(types.KeyboardButton("Меню"))
+        if developer:
+            kb.row(types.KeyboardButton("Сбросить 🌑"))
+        return kb
+
+    if MINI_APP_URL:
+        kb.row(types.KeyboardButton("Карта дня ✨", web_app=types.WebAppInfo(url=MINI_APP_URL)))
+    else:
+        kb.row(types.KeyboardButton("Карта дня ✨"))
     kb.row(
         types.KeyboardButton("Карьера"),
         types.KeyboardButton("Бизнес"),
@@ -751,10 +767,17 @@ def build_main_keyboard():
         types.KeyboardButton("Вопрос"),
     )
     kb.row(types.KeyboardButton("Саппорт"))
+    kb.row(types.KeyboardButton("Скрыть меню"))
+    if developer:
+        kb.row(types.KeyboardButton("Сбросить 🌑"))
     return kb
 
 
 FEATURE_TEXTS = {
+    "daily": (
+        "🌙 <b>Карта дня</b>\n\n"
+        "Кнопка mini app доступна в раскрытом меню. Если она не открывается, значит ещё нужно проверить публичный URL приложения."
+    ),
     "career": (
         "💼 <b>Архетип и карьера</b>\n\n"
         "Этот раздел подготовим следующим: здесь будет разбор сильных сторон архетипа в работе, деньгах, формате занятости и стиле проявления в профессии."
@@ -791,19 +814,7 @@ FEATURE_TEXTS = {
 
 
 def build_post_archetype_keyboard():
-    kb = types.InlineKeyboardMarkup(row_width=1)
-    if MINI_APP_URL:
-        kb.add(types.InlineKeyboardButton("Карта дня ✨", web_app=types.WebAppInfo(url=MINI_APP_URL)))
-    else:
-        kb.add(types.InlineKeyboardButton("Карта дня ✨", callback_data="feature:daily_unavailable"))
-    kb.add(types.InlineKeyboardButton("Архетип и карьера", callback_data="feature:career"))
-    kb.add(types.InlineKeyboardButton("Архетип и бизнес", callback_data="feature:business"))
-    kb.add(types.InlineKeyboardButton("Архетип и отношения", callback_data="feature:relations"))
-    kb.add(types.InlineKeyboardButton("Архетип и здоровье", callback_data="feature:health"))
-    kb.add(types.InlineKeyboardButton("Натальная карта", callback_data="feature:natal"))
-    kb.add(types.InlineKeyboardButton("Свой вопрос", callback_data="feature:question"))
-    kb.add(types.InlineKeyboardButton("Саппорт", callback_data="feature:support"))
-    return kb
+    return None
 
 
 async def card_of_day_webapp(request):
@@ -851,9 +862,25 @@ def build_natal_text(profile):
     return "\n\n".join(parts)
 
 
+async def show_profile_home(message):
+    profile = get_user_profile(message.from_user.id)
+    if not profile:
+        await message.reply(
+            "Привет! Я помогу тебе узнать твой астрологический архетип. Нажми «Старт ✨», чтобы ввести дату, время и место рождения.",
+            reply_markup=build_main_keyboard(profile_exists=False, developer=is_developer(message.from_user.id)),
+        )
+        return
+
+    await message.reply(
+        build_saved_profile_text(profile),
+        parse_mode="HTML",
+        reply_markup=build_main_keyboard(profile_exists=True, expanded=False, developer=is_developer(message.from_user.id)),
+    )
+
+
 async def send_feature_response(message, feature_key, profile=None):
     if feature_key == "natal" and profile:
-        await message.reply(build_natal_text(profile), parse_mode="HTML", reply_markup=build_post_archetype_keyboard())
+        await message.reply(build_natal_text(profile), parse_mode="HTML")
         return
     if feature_key == "support":
         await SupportFlow.waiting_for_message.set()
@@ -861,21 +888,13 @@ async def send_feature_response(message, feature_key, profile=None):
         feature_key,
         "Этот раздел уже отмечен в боте, но текст-заглушка для него пока не настроен."
     )
-    await message.reply(text, parse_mode="HTML", reply_markup=build_post_archetype_keyboard())
+    await message.reply(text, parse_mode="HTML")
 
 @dp.message_handler(commands=['start'])
 async def start(message: types.Message):
     profile = get_user_profile(message.from_user.id)
     if profile:
-        await message.reply(
-            build_saved_profile_text(profile),
-            parse_mode="HTML",
-            reply_markup=build_main_keyboard(),
-        )
-        await message.reply(
-            "Выбери раздел ниже или открой карту дня.",
-            reply_markup=build_post_archetype_keyboard(),
-        )
+        await show_profile_home(message)
         return
 
     greetings = [
@@ -883,7 +902,7 @@ async def start(message: types.Message):
         "Давай определим твой астрологический архетип. Введи дату рождения в формате ДД.ММ.ГГГГ 🌌",
         "Сейчас мы посмотрим, какой архетип заложен в твоей карте. Введи дату рождения: ДД.ММ.ГГГГ 🗓️"
     ]
-    kb = build_main_keyboard()
+    kb = build_main_keyboard(profile_exists=False, developer=is_developer(message.from_user.id))
     await message.reply(random.choice(greetings), parse_mode='HTML', reply_markup=kb)
     await BirthData.waiting_for_date.set()
 
@@ -894,14 +913,51 @@ async def handle_reset_button(message: types.Message, state: FSMContext):
     else:
         await message.reply("Сброс профиля недоступен в пользовательском режиме. Если есть проблема, напиши в саппорт.")
 
+
+@dp.message_handler(lambda message: message.text == "Старт ✨", state="*")
+async def handle_start_button(message: types.Message, state: FSMContext):
+    if get_user_profile(message.from_user.id) and not is_developer(message.from_user.id):
+        await show_profile_home(message)
+        return
+    await state.finish()
+    await start(message)
+
+
+@dp.message_handler(lambda message: message.text == "Меню", state="*")
+async def handle_menu_button(message: types.Message, state: FSMContext):
+    profile = get_user_profile(message.from_user.id)
+    if not profile:
+        await message.reply(
+            "Сначала нужно нажать «Старт ✨» и заполнить дату, время и место рождения.",
+            reply_markup=build_main_keyboard(profile_exists=False, developer=is_developer(message.from_user.id)),
+        )
+        return
+    await state.finish()
+    await message.reply(
+        "Выбери нужный раздел.",
+        reply_markup=build_main_keyboard(profile_exists=True, expanded=True, developer=is_developer(message.from_user.id)),
+    )
+
+
+@dp.message_handler(lambda message: message.text == "Скрыть меню", state="*")
+async def handle_hide_menu_button(message: types.Message, state: FSMContext):
+    await state.finish()
+    await message.reply(
+        "Меню свернуто.",
+        reply_markup=build_main_keyboard(profile_exists=bool(get_user_profile(message.from_user.id)), expanded=False, developer=is_developer(message.from_user.id)),
+    )
+
 @dp.message_handler(state=BirthData.waiting_for_date)
 async def process_date(message: types.Message, state: FSMContext):
     try:
         if get_user_profile(message.from_user.id) and not is_developer(message.from_user.id):
             await state.finish()
             profile = get_user_profile(message.from_user.id)
-            await message.reply(build_saved_profile_text(profile), parse_mode="HTML", reply_markup=build_main_keyboard())
-            await message.reply("Твой профиль уже сохранён. Ниже доступны все разделы.", reply_markup=build_post_archetype_keyboard())
+            await message.reply(
+                build_saved_profile_text(profile),
+                parse_mode="HTML",
+                reply_markup=build_main_keyboard(profile_exists=True, expanded=False, developer=is_developer(message.from_user.id)),
+            )
             return
         normalized_date = normalize_date_input(message.text)
         if not normalized_date:
@@ -934,8 +990,11 @@ async def process_place(message: types.Message, state: FSMContext):
         if get_user_profile(message.from_user.id) and not is_developer(message.from_user.id):
             await state.finish()
             profile = get_user_profile(message.from_user.id)
-            await message.reply(build_saved_profile_text(profile), parse_mode="HTML", reply_markup=build_main_keyboard())
-            await message.reply("Твой профиль уже сохранён. Ниже доступны все разделы.", reply_markup=build_post_archetype_keyboard())
+            await message.reply(
+                build_saved_profile_text(profile),
+                parse_mode="HTML",
+                reply_markup=build_main_keyboard(profile_exists=True, expanded=False, developer=is_developer(message.from_user.id)),
+            )
             return
         place = message.text.strip().lower()
         place_normalized = CITY_NORMALIZATION.get(place, place.title())
@@ -1060,9 +1119,8 @@ async def process_place(message: types.Message, state: FSMContext):
         })
         await message.reply(archetype_report, parse_mode="HTML")
         await message.reply(
-            "Выбери, что хочешь открыть дальше. `Карта дня` откроется как mini app, остальные разделы уже стоят как каркас для следующих шагов.",
-            parse_mode="Markdown",
-            reply_markup=build_post_archetype_keyboard(),
+            "Профиль сохранён. Теперь внизу у тебя есть кнопка «Меню» со всеми разделами.",
+            reply_markup=build_main_keyboard(profile_exists=True, expanded=False, developer=is_developer(message.from_user.id)),
         )
         await state.finish()
 
@@ -1133,6 +1191,7 @@ async def handle_web_app_data(message: types.Message):
 
 
 MENU_ACTIONS = {
+    "Карта дня ✨": "daily",
     "Карьера": "career",
     "Бизнес": "business",
     "Отношения": "relations",
@@ -1167,19 +1226,34 @@ async def handle_support_message(message: types.Message, state: FSMContext):
     success = save_support_request(message, profile, complaint_text)
     await state.finish()
     if success:
-        await message.reply("Спасибо, я сохранил обращение в саппорт. Можешь продолжать пользоваться ботом.", reply_markup=build_main_keyboard())
+        await message.reply(
+            "Спасибо, я сохранил обращение в саппорт. Можешь продолжать пользоваться ботом.",
+            reply_markup=build_main_keyboard(profile_exists=True, expanded=False, developer=is_developer(message.from_user.id)),
+        )
     else:
-        await message.reply("Не удалось сохранить обращение в таблицу, но я уже знаю, что этот блок нужно проверить.", reply_markup=build_main_keyboard())
+        await message.reply(
+            "Не удалось сохранить обращение в таблицу, но я уже знаю, что этот блок нужно проверить.",
+            reply_markup=build_main_keyboard(profile_exists=True, expanded=False, developer=is_developer(message.from_user.id)),
+        )
 
 async def reset_state(message: types.Message, state: FSMContext):
     await state.finish()
-    kb = build_main_keyboard()
+    kb = build_main_keyboard(profile_exists=False, developer=is_developer(message.from_user.id))
     await message.reply("🔄 Всё сброшено. Начнём заново!\nВведи дату рождения в формате ДД.ММ.ГГГГ ✨", reply_markup=kb)
     await BirthData.waiting_for_date.set()
 
 @dp.message_handler()
 async def fallback_handler(message: types.Message):
-    await message.reply("Я пока не знаю, что с этим делать 🤔 Попробуй /start.")
+    if get_user_profile(message.from_user.id):
+        await message.reply(
+            "Твой профиль уже сохранён. Нажми «Меню», чтобы открыть разделы.",
+            reply_markup=build_main_keyboard(profile_exists=True, expanded=False, developer=is_developer(message.from_user.id)),
+        )
+    else:
+        await message.reply(
+            "Нажми «Старт ✨», чтобы ввести дату, время и место рождения и получить архетип.",
+            reply_markup=build_main_keyboard(profile_exists=False, developer=is_developer(message.from_user.id)),
+        )
 
 async def on_startup(dispatcher):
     if WEBHOOK_URL:
