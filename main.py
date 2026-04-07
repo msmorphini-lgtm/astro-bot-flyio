@@ -106,6 +106,13 @@ SIGN_ELEMENTS = {
     "Рыбы": "Вода",
 }
 
+ELEMENT_DATIVE = {
+    "Огонь": "огню",
+    "Земля": "земле",
+    "Воздух": "воздуху",
+    "Вода": "воде",
+}
+
 MODALITY_TRAITS = {
     "Кардинальный": "вы запускаете процессы, любите движение и чувствуете себя увереннее, когда можете влиять на ход событий.",
     "Фиксированный": "в вас много устойчивости, верности своим решениям и умения удерживать курс даже тогда, когда вокруг всё меняется.",
@@ -487,7 +494,7 @@ def build_archetype_report(all_signs, personal_signs, priority_signs):
         if not extra_element_text:
             extra_element_text = f"Дополнительный акцент стихии {secondary_element.lower()} делает ваш архетип более многослойным и добавляет ему особую манеру проявления."
         parts.append(
-            f"Ваша уникальность в том, что к {dominant_element.lower()} добавляется {secondary_element.lower()}. {extra_element_text}"
+            f"Ваша уникальность в том, что к {ELEMENT_DATIVE.get(dominant_element, dominant_element.lower())} добавляется {secondary_element.lower()}. {extra_element_text}"
         )
 
     if secondary_modality and show_secondary_modality:
