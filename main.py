@@ -629,6 +629,23 @@ def get_user_profile(user_id):
     return row
 
 
+def delete_user_profile(user_id):
+    worksheet = get_google_worksheet()
+    if not worksheet:
+        return False
+
+    row_index, _ = find_profile_row(worksheet, user_id)
+    if not row_index:
+        return False
+
+    try:
+        worksheet.delete_rows(row_index)
+        return True
+    except Exception:
+        logging.exception("Не удалось удалить профиль пользователя")
+        return False
+
+
 def save_support_request(message, profile, complaint_text):
     worksheet = get_support_worksheet()
     if not worksheet:
@@ -1230,6 +1247,25 @@ async def cmd_dev_reset_profile(message: types.Message, state: FSMContext):
     if not is_developer(message.from_user.id):
         return
     await reset_state(message, state)
+
+
+@dp.message_handler(commands=['dev_delete_profile'])
+async def cmd_dev_delete_profile(message: types.Message, state: FSMContext):
+    if not is_developer(message.from_user.id):
+        return
+
+    await state.finish()
+    deleted = delete_user_profile(message.from_user.id)
+    if deleted:
+        await message.reply(
+            "Профиль удалён из Google Sheets. Теперь бот увидит тебя как нового пользователя.",
+            reply_markup=build_main_keyboard(profile_exists=False, developer=True),
+        )
+    else:
+        await message.reply(
+            "Профиль не найден в таблице или не удалось удалить запись.",
+            reply_markup=build_main_keyboard(profile_exists=bool(get_user_profile(message.from_user.id)), developer=True),
+        )
 
 
 @dp.callback_query_handler(lambda call: call.data and call.data.startswith("feature:"))
