@@ -1141,6 +1141,76 @@ async def cmd_ping(message: types.Message):
     await message.reply("✅ Я на связи!")
 
 
+async def handle_section_command(message: types.Message, state: FSMContext, feature_key: str):
+    profile = get_user_profile(message.from_user.id)
+    if not profile:
+        await state.finish()
+        await message.reply(
+            "Сначала нажми «Старт ✨» и заполни дату, время и место рождения, чтобы я сохранил твой профиль.",
+            reply_markup=build_main_keyboard(profile_exists=False, developer=is_developer(message.from_user.id)),
+        )
+        return
+
+    if feature_key != "support":
+        await state.finish()
+    await send_feature_response(message, feature_key, profile=profile)
+
+
+@dp.message_handler(commands=['career'])
+async def cmd_career(message: types.Message, state: FSMContext):
+    await handle_section_command(message, state, "career")
+
+
+@dp.message_handler(commands=['business'])
+async def cmd_business(message: types.Message, state: FSMContext):
+    await handle_section_command(message, state, "business")
+
+
+@dp.message_handler(commands=['relations'])
+async def cmd_relations(message: types.Message, state: FSMContext):
+    await handle_section_command(message, state, "relations")
+
+
+@dp.message_handler(commands=['health'])
+async def cmd_health(message: types.Message, state: FSMContext):
+    await handle_section_command(message, state, "health")
+
+
+@dp.message_handler(commands=['natal'])
+async def cmd_natal(message: types.Message, state: FSMContext):
+    await handle_section_command(message, state, "natal")
+
+
+@dp.message_handler(commands=['question'])
+async def cmd_question(message: types.Message, state: FSMContext):
+    await handle_section_command(message, state, "question")
+
+
+@dp.message_handler(commands=['support'])
+async def cmd_support(message: types.Message, state: FSMContext):
+    await handle_section_command(message, state, "support")
+
+
+@dp.message_handler(commands=['daily'])
+async def cmd_daily(message: types.Message, state: FSMContext):
+    profile = get_user_profile(message.from_user.id)
+    if not profile:
+        await state.finish()
+        await message.reply(
+            "Сначала нажми «Старт ✨» и заполни дату, время и место рождения, чтобы я сохранил твой профиль.",
+            reply_markup=build_main_keyboard(profile_exists=False, developer=is_developer(message.from_user.id)),
+        )
+        return
+
+    if MINI_APP_URL:
+        kb = types.InlineKeyboardMarkup()
+        kb.add(types.InlineKeyboardButton("Открыть карту дня ✨", web_app=types.WebAppInfo(url=MINI_APP_URL)))
+        await message.reply("Открой карту дня в mini app.", reply_markup=kb)
+        return
+
+    await handle_section_command(message, state, "daily")
+
+
 @dp.message_handler(commands=['dev_me'])
 async def cmd_dev_me(message: types.Message):
     if not is_developer(message.from_user.id):
